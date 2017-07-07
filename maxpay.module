@@ -1,0 +1,184 @@
+<?php
+
+use Drupal\maxpay\Scriney;
+use Drupal\maxpay\Lib\Util\SignatureHelper;
+
+/**
+ * @file
+ * Implements the MaxPay payment method for Drupal Commerce checkout. 
+ */
+
+function maxpay_menu()
+{
+    $items = array();
+    
+	$items['admin/settings/maxpay'] = array(
+		'title' => 'MaxPay',
+		'description' => 'Required MaxPay settings',
+		'page callback' => 'drupal_get_form',
+		'page arguments' => array('maxpay_form'),
+		'access arguments' => array('administer users'),
+		'type' => MENU_NORMAL_ITEM,
+   );
+
+    return $items;
+}
+
+function maxpay_form($form, &$form_state) 
+{
+		
+    $form['maxpay_public_key'] = array(
+            '#type' => 'textfield',
+            '#title' => t('MaxPay public key'),
+            '#default_value' => variable_get('maxpay_public_key', ''),    
+            '#maxlength' => 255,
+            '#description' => t("The MaxPay pulic key value"),
+            '#required' => TRUE,
+    );
+
+    $form['maxpay_secret_key'] = array(
+            '#type' => 'textfield',
+            '#title' => t('MaxPay secret key'),
+            '#default_value' => variable_get('maxpay_secret_key', ''),    
+            '#maxlength' => 255,
+            '#description' => t("The MaxPay secret key value"),
+            '#required' => TRUE,
+    );  	
+
+    return system_settings_form($form);
+}
+
+function maxpay_commerce_payment_method_info()
+{
+    $payment_methods = array();
+
+    $payment_methods['maxpay'] = array( 
+        'title' => t( 'MaxPay' ),
+        'description' => t( 'Integrates with the MaxPay payment gateway.' ),
+        'active' => true, 
+        'offsite' => true,
+        'offsite_autoredirect' => true,        
+    );
+
+    return $payment_methods;
+}
+
+function maxpay_redirect_form($form, &$form_state, $order, $payment_method)
+{
+	
+    $order_wrapper = entity_metadata_wrapper('commerce_order', $order);	
+    $order_total = $order_wrapper->commerce_order_total->amount->value()/100;
+
+    $form['#after_build'][] = 'maxpay_form_add_signature';
+    $form['#pre_render'][] = 'maxpay_form_modify';
+
+    $form['#action'] = 'https://hpp.maxpay.com/hpp';
+
+    $form['key'] = array(
+        '#type' => 'hidden',
+        '#value' => variable_get('maxpay_public_key', ''),
+    );
+
+    $form['amount'] = array(
+        '#type' => 'hidden',
+        '#value' => $order_total,
+    );
+
+    $form['uniqueuserid'] = array(
+        '#type' => 'hidden',
+        '#value' => $order_wrapper->mail->value(),
+    );
+
+    $form['email'] = array(
+        '#type' => 'hidden',
+        '#value' => $order_wrapper->mail->value(),
+    );
+
+    $form['customProduct'] = array(
+        '#type' => 'hidden',
+        '#value' => '[{"productType":"fixedProduct","productId":"'.$order_wrapper->order_number->value().
+        '","productName":"Order id #'.$order_wrapper->order_number->value().
+        '","currency":"'.$order_wrapper->commerce_order_total->currency_code->value().'","amount":'.$order_total.'}]',
+    );
+    
+    $form['success_url'] = array(
+        '#type' => 'hidden',
+        '#value' => url('checkout/' . $order->order_id . '/payment/return/' . $order->data['payment_redirect_key'], array('absolute' => TRUE)),
+    );
+ 
+    $form['decline_url'] = array(
+        '#type' => 'hidden',
+        '#value' => url('checkout/' . $order->order_id . '/payment/back/' . $order->data['payment_redirect_key'], array('absolute' => TRUE)),
+    );
+
+    $form['submit'] = array(
+        '#type' => 'submit',
+        '#value' => t('Pay'),
+    );
+
+    return $form;
+  
+}
+
+function maxpay_form_add_signature($form)
+{
+    
+    $params = [
+        'amount' => (string) $form['amount']['#value'],
+        "customProduct" =>  $form['customProduct']['#value'],
+        "email" => $form['email']['#value'],
+        "key" => $form['key']['#value'],
+        "uniqueuserid" => $form['uniqueuserid']['#value'],
+        "success_url" => $form['success_url']['#value'],
+        "decline_url" => $form['decline_url']['#value'],
+    ];
+    
+    $signature = (new SignatureHelper())->generate($params, variable_get('maxpay_secret_key'), true);
+
+    $form['signature'] = array(
+            '#type' => 'hidden',
+            '#value' => $signature,
+    );
+
+    return $form;
+}
+
+/**
+ * Removing unneccessary data from submit form
+ */
+function maxpay_form_modify($form)
+{    
+    unset($form['form_token']);
+    unset($form['form_build_id']);
+    unset($form['form_id']);
+
+    return $form;
+}
+
+function maxpay_redirect_form_validate($order, $payment_method) {
+    
+    $scriney = new Scriney(variable_get('maxpay_public_key'), variable_get('maxpay_secret_key'));
+    
+    if ($scriney->validateCallback($_POST)) {
+        return true;
+    } else {
+        return false;
+    }
+
+}
+ 
+function maxpay_redirect_form_submit($order, $payment_method) {
+	
+  $order_wrapper = entity_metadata_wrapper('commerce_order', $order);
+   
+  $transaction = commerce_payment_transaction_new('maxpay', $order->order_id);
+  $transaction->instance_id = $payment_method['instance_id'];
+  $transaction->amount = $order_wrapper->commerce_order_total->amount->value();
+  $transaction->currency_code = $order_wrapper->commerce_order_total->currency_code->value();
+  $transaction->status = COMMERCE_PAYMENT_STATUS_SUCCESS;
+  $transaction->message = t('The payment has completed.');
+  commerce_payment_transaction_save($transaction);
+  
+}
+
+  

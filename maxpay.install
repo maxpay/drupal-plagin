@@ -1,0 +1,59 @@
+<?php
+
+/**
+ * @file
+ * Installs the tables required by Commerce MaxPay. 
+ */
+
+/**
+ * Implements hook_schema().
+ */
+function maxpay_schema() {
+	
+	$schema = array();
+
+    $schema['maxpay_settings'] = array(
+    'description' => 'Stores MaxPay settings.',
+    'fields' => array(
+      'id' => array(
+        'description' => 'settings id - primary key',
+        'type' => 'serial',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+    'public_key' => array(
+        'description' => 'maxpay public key',
+        'type' => 'varchar',
+        'length' => 255,        
+        'default' => '',
+      ),
+    'secret_key' => array(
+        'description' => 'maxpay secret key',
+        'type' => 'varchar',
+        'length' => 255,        
+        'default' => '',
+      ),     
+    'iframe_width' => array(
+        'description' => 'maxpay iframe width in pixels',
+        'type' => 'int',        
+        'not null' => TRUE,
+        'default' => 800,
+      ), 
+	'iframe_height' => array(
+        'description' => 'maxpay iframe height in pixels',
+        'type' => 'int',        
+        'not null' => TRUE,
+        'default' => 300,
+      ), 
+	'debug_mode' => array(
+        'description' => 'maxpay debug mode switcher',
+        'type' => 'int',        
+        'not null' => TRUE,
+        'default' => 0,
+      ),       
+    ),
+    'primary key' => array('id'),        
+  );
+
+  return $schema;
+}
